@@ -33,16 +33,12 @@ export class PSSessionManager {
 
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
-        // Debug print
-        console.log('[PowerShell:stdout]', line);
         this.outputBuffer.push(line);
       });
 
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
-          const msg = data.toString();
-          console.error('[PowerShell:stderr]', msg);
-          this.outputBuffer.push(`ERROR: ${msg}`);
+          this.outputBuffer.push(`ERROR: ${data}`);
         });
       }
 
@@ -61,7 +57,6 @@ $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForP
 ${this.sessionVariable} = New-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
 Write-Host '${this.CONNECT_MARKER}'
 `;
-        console.log('[connect] Creating remote session...');
         this.psProcess.stdin.write(script + '\n');
 
         const checkInterval = setInterval(() => {
@@ -81,38 +76,37 @@ Write-Host '${this.CONNECT_MARKER}'
       }
 
       const initialLength = this.outputBuffer.length;
-
-      // 1) Print the command itself
-      // 2) Pipe command output to Out-String
-      // 3) Print COMMAND_DONE marker
       const script = `
 Write-Host "COMMAND: ${command}"
 Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
 Write-Host '${this.COMMAND_MARKER}'
 `;
-      console.log('[runCommand] Sending script:\n', script);
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        console.log('[runCommand:poll] newOutput =', newOutput);
-
-        // If any line has COMMAND_MARKER, we collect everything including that line
-        const idx = newOutput.findIndex((l) => l.includes(this.COMMAND_MARKER));
-        if (idx !== -1) {
+        const markerIndex = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
+        if (markerIndex !== -1) {
           clearInterval(checkInterval);
 
-          // Everything up to (and including) idx
-          const linesUntilMarker: string[] = [];
-          for (let i = 0; i <= idx; i++) {
-            linesUntilMarker.push(newOutput[i]);
-          }
-          // This now contains:
-          //    "COMMAND: <yourCommand>"
-          //    <output lines>
-          //    "COMMAND_DONE"
+          const relevantLines: string[] = [];
+          let inBlock = false;
 
-          resolve(linesUntilMarker.join('\n'));
+          for (const line of newOutput) {
+            if (line.startsWith('COMMAND: ')) {
+              inBlock = true;
+            }
+            if (inBlock) {
+              if (line.trim()) {
+                relevantLines.push(line);
+              }
+            }
+            if (line.includes(this.COMMAND_MARKER)) {
+              break;
+            }
+          }
+
+          resolve(relevantLines.join('\n'));
         }
       }, 300);
     });
