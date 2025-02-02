@@ -22,40 +22,36 @@ export class PSSessionManager {
     this.host = options.host;
     this.username = options.username;
     this.password = options.password;
-    console.log(`[constructor] host="${this.host}", user="${this.username}"`);
   }
 
   public async connect(): Promise<void> {
-    console.log('[connect] Spawning PowerShell process...');
     return new Promise((resolve, reject) => {
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], { stdio: 'pipe' });
       if (!this.psProcess || !this.psProcess.stdout) {
-        console.error('[connect] Failed to spawn PowerShell process.');
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
 
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
-        console.log(`[PowerShell:stdout] ${line}`);
+        // Debug print
+        console.log('[PowerShell:stdout]', line);
         this.outputBuffer.push(line);
       });
 
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
           const msg = data.toString();
-          console.error(`[PowerShell:stderr] ${msg}`);
+          console.error('[PowerShell:stderr]', msg);
           this.outputBuffer.push(`ERROR: ${msg}`);
         });
       }
 
-      this.psProcess.on('exit', (code) => {
-        console.log(`[connect] PowerShell exited with code ${code}`);
+      this.psProcess.on('exit', () => {
         this.psProcess = null;
       });
 
       setTimeout(() => {
         if (!this.psProcess || !this.psProcess.stdin) {
-          console.error('[connect] PowerShell stdin not available.');
           return reject(new Error('PowerShell process not available.'));
         }
 
@@ -65,16 +61,11 @@ $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForP
 ${this.sessionVariable} = New-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
 Write-Host '${this.CONNECT_MARKER}'
 `;
-
-        console.log('[connect] Sending script to create session...');
-        console.log(`[connect:script]\n${script}`);
-
+        console.log('[connect] Creating remote session...');
         this.psProcess.stdin.write(script + '\n');
 
         const checkInterval = setInterval(() => {
-          console.log('[connect:poll] Checking for CONNECT_MARKER...');
           if (this.outputBuffer.some((l) => l.includes(this.CONNECT_MARKER))) {
-            console.log('[connect:poll] Found CONNECT_MARKER.');
             clearInterval(checkInterval);
             resolve();
           }
@@ -84,40 +75,43 @@ Write-Host '${this.CONNECT_MARKER}'
   }
 
   public async runCommand(command: string): Promise<string> {
-    console.log(`[runCommand] About to run command: ${command}`);
     return new Promise((resolve, reject) => {
       if (!this.psProcess || !this.psProcess.stdin) {
-        console.error('[runCommand] PowerShell process not started.');
         return reject(new Error('PowerShell process not started.'));
       }
 
       const initialLength = this.outputBuffer.length;
 
+      // 1) Print the command itself
+      // 2) Pipe command output to Out-String
+      // 3) Print COMMAND_DONE marker
       const script = `
+Write-Host "COMMAND: ${command}"
 Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
 Write-Host '${this.COMMAND_MARKER}'
 `;
-
-      console.log('[runCommand] Sending script:');
-      console.log(`[runCommand:script]\n${script}`);
-
+      console.log('[runCommand] Sending script:\n', script);
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        console.log('[runCommand:poll] newOutput:\n', JSON.stringify(newOutput, null, 2));
+        console.log('[runCommand:poll] newOutput =', newOutput);
 
-        if (newOutput.some((l) => l.includes(this.COMMAND_MARKER))) {
-          console.log('[runCommand:poll] Found COMMAND_MARKER.');
+        // If any line has COMMAND_MARKER, we collect everything including that line
+        const idx = newOutput.findIndex((l) => l.includes(this.COMMAND_MARKER));
+        if (idx !== -1) {
           clearInterval(checkInterval);
+
+          // Everything up to (and including) idx
           const linesUntilMarker: string[] = [];
-          for (const line of newOutput) {
-            if (line.includes(this.COMMAND_MARKER)) {
-              break;
-            }
-            linesUntilMarker.push(line);
+          for (let i = 0; i <= idx; i++) {
+            linesUntilMarker.push(newOutput[i]);
           }
-          console.log('[runCommand] Lines until marker:\n', JSON.stringify(linesUntilMarker, null, 2));
+          // This now contains:
+          //    "COMMAND: <yourCommand>"
+          //    <output lines>
+          //    "COMMAND_DONE"
+
           resolve(linesUntilMarker.join('\n'));
         }
       }, 300);
@@ -125,32 +119,23 @@ Write-Host '${this.COMMAND_MARKER}'
   }
 
   public async disconnect(): Promise<void> {
-    console.log('[disconnect] Closing session.');
     return new Promise((resolve) => {
       if (!this.psProcess || !this.psProcess.stdin) {
-        console.log('[disconnect] No active PowerShell process.');
         resolve();
         return;
       }
 
+      const initialLength = this.outputBuffer.length;
       const script = `
 Remove-PSSession -Session ${this.sessionVariable}
 Write-Host '${this.DISCONNECT_MARKER}'
 exit
 `;
-
-      const initialLength = this.outputBuffer.length;
-      console.log('[disconnect] Sending remove session + exit...');
-      console.log(`[disconnect:script]\n${script}`);
-
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        console.log('[disconnect:poll] newOutput:\n', JSON.stringify(newOutput, null, 2));
-
         if (newOutput.some((l) => l.includes(this.DISCONNECT_MARKER))) {
-          console.log('[disconnect:poll] Found DISCONNECT_MARKER.');
           clearInterval(checkInterval);
           resolve();
         }
