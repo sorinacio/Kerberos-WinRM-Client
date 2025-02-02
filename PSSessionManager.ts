@@ -13,6 +13,7 @@ export class PSSessionManager {
   private password: string;
   private psProcess: ChildProcessWithoutNullStreams | null = null;
   private outputBuffer: string[] = [];
+
   private sessionVariable = '$session';
   private CONNECT_MARKER = 'SESSION_READY';
   private COMMAND_MARKER = 'COMMAND_DONE';
@@ -27,6 +28,7 @@ export class PSSessionManager {
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], { stdio: 'pipe' });
+
       if (!this.psProcess || !this.psProcess.stdout) {
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
@@ -46,23 +48,20 @@ export class PSSessionManager {
         this.psProcess = null;
       });
 
-      // Give PowerShell some time to spin up
       setTimeout(() => {
         if (!this.psProcess || !this.psProcess.stdin) {
           return reject(new Error('PowerShell process not available.'));
         }
 
-        // Create a remote session
         const script = `
 $pass = ConvertTo-SecureString '${this.escapeForPS(this.password)}' -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForPS(this.username)}', $pass)
 ${this.sessionVariable} = New-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
-Write-Host '${this.CONNECT_MARKER}'
+Write-Output '${this.CONNECT_MARKER}'
 `;
         this.psProcess.stdin.write(script + '\n');
 
         const checkInterval = setInterval(() => {
-          // If we've seen the CONNECT_MARKER, session is created
           if (this.outputBuffer.some((l) => l.includes(this.CONNECT_MARKER))) {
             clearInterval(checkInterval);
             resolve();
@@ -78,27 +77,29 @@ Write-Host '${this.CONNECT_MARKER}'
         return reject(new Error('PowerShell process not started.'));
       }
 
-      const initialLength = this.outputBuffer.length;
+      const initialIndex = this.outputBuffer.length;
 
-      // Write the command: 
-      // 1) "COMMAND: ...", 
-      // 2) command piped to Out-String, 
-      // 3) "COMMAND_DONE".
+      // We store the result of Invoke-Command in $result
+      // Write out "COMMAND: <command>"
+      // Then write out the lines from $result
+      // Then "COMMAND_DONE"
       const script = `
-Write-Host "COMMAND: ${command}"
-Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
-Write-Host '${this.COMMAND_MARKER}'
+Write-Output "COMMAND: ${command}"
+$result = Invoke-Command -Session ${this.sessionVariable} -ScriptBlock {
+    ${command}
+}
+Write-Output ($result | Out-String)
+Write-Output "${this.COMMAND_MARKER}"
 `;
+
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
-        const newOutput = this.outputBuffer.slice(initialLength);
-        // Look for the line containing COMMAND_MARKER
-        const markerIndex = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
-        if (markerIndex !== -1) {
+        const newOutput = this.outputBuffer.slice(initialIndex);
+        const markerLine = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
+        if (markerLine !== -1) {
           clearInterval(checkInterval);
-          // Return everything up to & including the marker line
-          const linesToReturn = newOutput.slice(0, markerIndex + 1);
+          const linesToReturn = newOutput.slice(0, markerLine + 1);
           resolve(linesToReturn.join('\n'));
         }
       }, 300);
@@ -115,14 +116,14 @@ Write-Host '${this.COMMAND_MARKER}'
       const initialLength = this.outputBuffer.length;
       const script = `
 Remove-PSSession -Session ${this.sessionVariable}
-Write-Host '${this.DISCONNECT_MARKER}'
+Write-Output '${this.DISCONNECT_MARKER}'
 exit
 `;
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        if (newOutput.some((l) => l.includes(this.DISCONNECT_MARKER))) {
+        if (newOutput.some((line) => line.includes(this.DISCONNECT_MARKER))) {
           clearInterval(checkInterval);
           resolve();
         }
