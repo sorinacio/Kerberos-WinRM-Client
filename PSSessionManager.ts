@@ -13,7 +13,6 @@ export class PSSessionManager {
   private password: string;
   private psProcess: ChildProcessWithoutNullStreams | null = null;
   private outputBuffer: string[] = [];
-
   private sessionVariable = '$session';
   private CONNECT_MARKER = 'SESSION_READY';
   private COMMAND_MARKER = 'COMMAND_DONE';
@@ -28,19 +27,22 @@ export class PSSessionManager {
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], { stdio: 'pipe' });
-
       if (!this.psProcess || !this.psProcess.stdout) {
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
 
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
+        // Debug print
+        console.log('[PowerShell:stdout]', line);
         this.outputBuffer.push(line);
       });
 
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
-          this.outputBuffer.push(`ERROR: ${data}`);
+          const msg = data.toString();
+          console.error('[PowerShell:stderr]', msg);
+          this.outputBuffer.push(`ERROR: ${msg}`);
         });
       }
 
@@ -57,8 +59,9 @@ export class PSSessionManager {
 $pass = ConvertTo-SecureString '${this.escapeForPS(this.password)}' -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForPS(this.username)}', $pass)
 ${this.sessionVariable} = New-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
-Write-Output '${this.CONNECT_MARKER}'
+Write-Host '${this.CONNECT_MARKER}'
 `;
+        console.log('[connect] Creating remote session...');
         this.psProcess.stdin.write(script + '\n');
 
         const checkInterval = setInterval(() => {
@@ -77,30 +80,39 @@ Write-Output '${this.CONNECT_MARKER}'
         return reject(new Error('PowerShell process not started.'));
       }
 
-      const initialIndex = this.outputBuffer.length;
+      const initialLength = this.outputBuffer.length;
 
-      // We store the result of Invoke-Command in $result
-      // Write out "COMMAND: <command>"
-      // Then write out the lines from $result
-      // Then "COMMAND_DONE"
+      // 1) Print the command itself
+      // 2) Pipe command output to Out-String
+      // 3) Print COMMAND_DONE marker
       const script = `
-Write-Output "COMMAND: ${command}"
-$result = Invoke-Command -Session ${this.sessionVariable} -ScriptBlock {
-    ${command}
-}
-Write-Output ($result | Out-String)
-Write-Output "${this.COMMAND_MARKER}"
+Write-Host "COMMAND: ${command}"
+Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
+Write-Host '${this.COMMAND_MARKER}'
 `;
-
+      console.log('[runCommand] Sending script:\n', script);
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
-        const newOutput = this.outputBuffer.slice(initialIndex);
-        const markerLine = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
-        if (markerLine !== -1) {
+        const newOutput = this.outputBuffer.slice(initialLength);
+        console.log('[runCommand:poll] newOutput =', newOutput);
+
+        // If any line has COMMAND_MARKER, we collect everything including that line
+        const idx = newOutput.findIndex((l) => l.includes(this.COMMAND_MARKER));
+        if (idx !== -1) {
           clearInterval(checkInterval);
-          const linesToReturn = newOutput.slice(0, markerLine + 1);
-          resolve(linesToReturn.join('\n'));
+
+          // Everything up to (and including) idx
+          const linesUntilMarker: string[] = [];
+          for (let i = 0; i <= idx; i++) {
+            linesUntilMarker.push(newOutput[i]);
+          }
+          // This now contains:
+          //    "COMMAND: <yourCommand>"
+          //    <output lines>
+          //    "COMMAND_DONE"
+
+          resolve(linesUntilMarker.join('\n'));
         }
       }, 300);
     });
@@ -116,14 +128,14 @@ Write-Output "${this.COMMAND_MARKER}"
       const initialLength = this.outputBuffer.length;
       const script = `
 Remove-PSSession -Session ${this.sessionVariable}
-Write-Output '${this.DISCONNECT_MARKER}'
+Write-Host '${this.DISCONNECT_MARKER}'
 exit
 `;
       this.psProcess.stdin.write(script + '\n');
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        if (newOutput.some((line) => line.includes(this.DISCONNECT_MARKER))) {
+        if (newOutput.some((l) => l.includes(this.DISCONNECT_MARKER))) {
           clearInterval(checkInterval);
           resolve();
         }
