@@ -1,20 +1,12 @@
-// PSSessionManager.ts
-
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as readline from 'readline';
 
-/**
- * Options for establishing the remote PS session.
- */
 export interface PSSessionOptions {
   host: string;      // Remote machine (name or IP)
   username: string;  // Domain\Username format
   password: string;  // Plain text password (see security notes)
 }
 
-/**
- * Manages a local PowerShell process that enters a remote session.
- */
 export class PSSessionManager {
   private host: string;
   private username: string;
@@ -34,6 +26,7 @@ export class PSSessionManager {
 
   /**
    * Spawns PowerShell and enters a remote session using the credentials.
+   * Also prints each line to the Node console for a live view.
    */
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -43,7 +36,7 @@ export class PSSessionManager {
 
       // Spawn an interactive PowerShell process
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], {
-        stdio: 'pipe'
+        stdio: 'pipe',
       });
 
       if (!this.psProcess || !this.psProcess.stdout) {
@@ -53,13 +46,19 @@ export class PSSessionManager {
       // Setup reading from stdout line-by-line
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
+        // 1. Print each line so you can "see" the session live in the Node console.
+        console.log(line);
+
+        // 2. Keep storing the line for internal parsing
         this.outputBuffer.push(line);
       });
 
-      // Capture errors from stderr
+      // Capture errors from stderr and print them as well
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
-          this.outputBuffer.push(`ERROR: ${data.toString()}`);
+          const msg = data.toString();
+          console.error('PowerShell ERR:', msg);
+          this.outputBuffer.push(`ERROR: ${msg}`);
         });
       }
 
