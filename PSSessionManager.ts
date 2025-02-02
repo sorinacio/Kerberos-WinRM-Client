@@ -27,7 +27,6 @@ export class PSSessionManager {
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], { stdio: 'pipe' });
-
       if (!this.psProcess || !this.psProcess.stdout) {
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
@@ -47,12 +46,13 @@ export class PSSessionManager {
         this.psProcess = null;
       });
 
+      // Give PowerShell some time to spin up
       setTimeout(() => {
         if (!this.psProcess || !this.psProcess.stdin) {
           return reject(new Error('PowerShell process not available.'));
         }
 
-        // Set up a remote session
+        // Create a remote session
         const script = `
 $pass = ConvertTo-SecureString '${this.escapeForPS(this.password)}' -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForPS(this.username)}', $pass)
@@ -62,6 +62,7 @@ Write-Host '${this.CONNECT_MARKER}'
         this.psProcess.stdin.write(script + '\n');
 
         const checkInterval = setInterval(() => {
+          // If we've seen the CONNECT_MARKER, session is created
           if (this.outputBuffer.some((l) => l.includes(this.CONNECT_MARKER))) {
             clearInterval(checkInterval);
             resolve();
@@ -78,6 +79,11 @@ Write-Host '${this.CONNECT_MARKER}'
       }
 
       const initialLength = this.outputBuffer.length;
+
+      // Write the command: 
+      // 1) "COMMAND: ...", 
+      // 2) command piped to Out-String, 
+      // 3) "COMMAND_DONE".
       const script = `
 Write-Host "COMMAND: ${command}"
 Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
@@ -87,11 +93,11 @@ Write-Host '${this.COMMAND_MARKER}'
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
-        // Find the index of the line that has COMMAND_MARKER
+        // Look for the line containing COMMAND_MARKER
         const markerIndex = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
         if (markerIndex !== -1) {
           clearInterval(checkInterval);
-          // Return everything up to and including the line that has COMMAND_MARKER
+          // Return everything up to & including the marker line
           const linesToReturn = newOutput.slice(0, markerIndex + 1);
           resolve(linesToReturn.join('\n'));
         }
