@@ -27,6 +27,7 @@ export class PSSessionManager {
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.psProcess = spawn('powershell.exe', ['-NoExit', '-Command', '-'], { stdio: 'pipe' });
+
       if (!this.psProcess || !this.psProcess.stdout) {
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
@@ -51,6 +52,7 @@ export class PSSessionManager {
           return reject(new Error('PowerShell process not available.'));
         }
 
+        // Set up a remote session
         const script = `
 $pass = ConvertTo-SecureString '${this.escapeForPS(this.password)}' -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForPS(this.username)}', $pass)
@@ -85,28 +87,13 @@ Write-Host '${this.COMMAND_MARKER}'
 
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
+        // Find the index of the line that has COMMAND_MARKER
         const markerIndex = newOutput.findIndex((line) => line.includes(this.COMMAND_MARKER));
         if (markerIndex !== -1) {
           clearInterval(checkInterval);
-
-          const relevantLines: string[] = [];
-          let inBlock = false;
-
-          for (const line of newOutput) {
-            if (line.startsWith('COMMAND: ')) {
-              inBlock = true;
-            }
-            if (inBlock) {
-              if (line.trim()) {
-                relevantLines.push(line);
-              }
-            }
-            if (line.includes(this.COMMAND_MARKER)) {
-              break;
-            }
-          }
-
-          resolve(relevantLines.join('\n'));
+          // Return everything up to and including the line that has COMMAND_MARKER
+          const linesToReturn = newOutput.slice(0, markerIndex + 1);
+          resolve(linesToReturn.join('\n'));
         }
       }, 300);
     });
