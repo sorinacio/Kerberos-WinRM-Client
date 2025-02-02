@@ -2,20 +2,29 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as readline from 'readline';
 
 export interface PSSessionOptions {
-  host: string;      // Remote machine (name or IP)
+  host: string;      // Remote machine (DNS name or IP)
   username: string;  // Domain\Username format
-  password: string;  // Plain text password (see security notes)
+  password: string;  // Plain-text password (see security concerns)
 }
 
+/**
+ * A class to manage a local PowerShell process that enters a remote session.
+ * - Spawns PowerShell
+ * - Builds PSCredential
+ * - Calls Enter-PSSession
+ * - Executes commands & captures output
+ * - Exits the session & closes PowerShell
+ */
 export class PSSessionManager {
   private host: string;
   private username: string;
   private password: string;
   private psProcess: ChildProcessWithoutNullStreams | null = null;
 
-  // We'll store lines from stdout here
+  // We’ll store all lines read from stdout in this buffer.
   private outputBuffer: string[] = [];
-  // A regex to detect the typical PowerShell prompt line
+
+  // A regex to detect the typical PowerShell prompt line (ends in '> ' or 'PS ...> ').
   private promptRegex = /> $|PS .*?> $/;
 
   constructor(options: PSSessionOptions) {
@@ -27,8 +36,8 @@ export class PSSessionManager {
   }
 
   /**
-   * Spawns PowerShell and enters a remote session using the credentials.
-   * Also prints each line to the Node console for a live view.
+   * Spawns a local PowerShell process and enters a remote session using the provided credentials.
+   * Also prints each line so you can watch it live in the Node console.
    */
   public async connect(): Promise<void> {
     console.log('[connect] Starting connection...');
@@ -45,21 +54,20 @@ export class PSSessionManager {
       });
 
       if (!this.psProcess || !this.psProcess.stdout) {
-        console.error('[connect] Failed to spawn PowerShell process.');
+        console.error('[connect] Failed to spawn PowerShell process or get stdout.');
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
 
       // Setup reading from stdout line-by-line
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
-        // 1. Print each line so you can "see" the session live in the Node console.
+        // Print each line for a live console-like output
         console.log(`[connect:stdout] ${line}`);
-
-        // 2. Keep storing the line for internal parsing
+        // Store for internal parsing
         this.outputBuffer.push(line);
       });
 
-      // Capture errors from stderr and print them as well
+      // Capture errors from stderr
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
           const msg = data.toString();
@@ -84,14 +92,15 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
       console.log('[connect] Waiting 1 second for PowerShell to initialize...');
       setTimeout(() => {
         if (!this.psProcess || !this.psProcess.stdin) {
-          console.error('[connect] PowerShell process or stdin not available.');
+          console.error('[connect] PowerShell process or stdin not available after spawn.');
           return;
         }
-        console.log('[connect] Sending PSCredential creation and Enter-PSSession commands...');
+
+        console.log('[connect] Sending PSCredential creation + Enter-PSSession commands...');
         this.psProcess.stdin.write(psCommands + '\n');
 
         // Wait briefly for the remote session prompt to appear
-        console.log('[connect] Waiting 1.5 seconds for remote session prompt...');
+        console.log('[connect] Waiting 1.5 seconds for the remote session prompt...');
         setTimeout(() => {
           console.log('[connect] Connection setup should be complete.');
           resolve();
@@ -102,12 +111,14 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
 
   /**
    * Runs a command in the remote session.
-   * We'll parse the output up until the next prompt.
+   * We parse the output until the next prompt is detected.
    */
   public async runCommand(command: string): Promise<string> {
     console.log(`[runCommand] Sending command: "${command}"`);
+
+    // Check if the PowerShell process is valid before writing to stdin
     if (!this.psProcess || !this.psProcess.stdin) {
-      const errorMsg = '[runCommand] PowerShell process not started. Call connect() first.';
+      const errorMsg = '[runCommand] PowerShell process not started or stdin unavailable. Call connect() first.';
       console.error(errorMsg);
       throw new Error(errorMsg);
     }
@@ -120,17 +131,18 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
 
       // Poll until we detect the next prompt line
       const checkInterval = setInterval(() => {
+        // We only look at the lines added since we wrote the command
         const newOutput = this.outputBuffer.slice(initialLength);
 
-        // Debug: show newly captured lines
-        // console.log(`[runCommand:poll] New output lines:`, newOutput);
+        // Debugging: Show newly captured lines if needed
+        // console.log('[runCommand:debug] Checking new lines:', newOutput);
 
-        // If we see the prompt, assume command finished
+        // If we see a line matching the prompt, we assume the command has finished
         if (newOutput.length > 0 && this.promptRegex.test(newOutput[newOutput.length - 1])) {
           clearInterval(checkInterval);
 
-          // The raw lines from the command are everything except the last line (the new prompt).
-          // Also skip the echoed command if present.
+          // The raw lines for this command’s output: everything except the last line (the prompt).
+          // Also often the first line might echo the command itself, depending on PowerShell version.
           const rawResult = newOutput.slice(0, -1).join('\n');
 
           console.log(`[runCommand] Command completed. Output:\n${rawResult}\n`);
@@ -141,10 +153,11 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
   }
 
   /**
-   * Exits the remote session and closes PowerShell.
+   * Exits the remote session and closes the local PowerShell process.
    */
   public async disconnect(): Promise<void> {
-    console.log('[disconnect] Closing remote session and PowerShell...');
+    console.log('[disconnect] Closing remote session and terminating PowerShell...');
+
     return new Promise((resolve) => {
       if (!this.psProcess || !this.psProcess.stdin) {
         console.log('[disconnect] No active PowerShell process to close.');
@@ -155,7 +168,8 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
       // Leave the remote session
       console.log('[disconnect] Sending Exit-PSSession...');
       this.psProcess.stdin.write('Exit-PSSession\n');
-      // Exit PowerShell
+
+      // Then exit PowerShell entirely
       console.log('[disconnect] Sending exit...');
       this.psProcess.stdin.write('exit\n');
 
@@ -169,7 +183,7 @@ Enter-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
   }
 
   /**
-   * Escape single quotes for inline PowerShell strings.
+   * Utility: Escapes single quotes so they don't break inline PowerShell strings.
    */
   private escapeForPS(str: string): string {
     return str.replace(/'/g, "''");
