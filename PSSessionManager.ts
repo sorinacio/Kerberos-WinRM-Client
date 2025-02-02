@@ -30,29 +30,36 @@ export class PSSessionManager {
       if (!this.psProcess || !this.psProcess.stdout) {
         return reject(new Error('Failed to spawn PowerShell process.'));
       }
+
       const rl = readline.createInterface({ input: this.psProcess.stdout });
       rl.on('line', (line) => {
         this.outputBuffer.push(line);
       });
+
       if (this.psProcess.stderr) {
         this.psProcess.stderr.on('data', (data) => {
           this.outputBuffer.push(`ERROR: ${data}`);
         });
       }
+
       this.psProcess.on('exit', () => {
         this.psProcess = null;
       });
+
       setTimeout(() => {
         if (!this.psProcess || !this.psProcess.stdin) {
           return reject(new Error('PowerShell process not available.'));
         }
+
         const script = `
 $pass = ConvertTo-SecureString '${this.escapeForPS(this.password)}' -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential ('${this.escapeForPS(this.username)}', $pass)
 ${this.sessionVariable} = New-PSSession -ComputerName '${this.escapeForPS(this.host)}' -Credential $cred
 Write-Host '${this.CONNECT_MARKER}'
 `;
+
         this.psProcess.stdin.write(script + '\n');
+
         const checkInterval = setInterval(() => {
           if (this.outputBuffer.some((l) => l.includes(this.CONNECT_MARKER))) {
             clearInterval(checkInterval);
@@ -68,12 +75,18 @@ Write-Host '${this.CONNECT_MARKER}'
       if (!this.psProcess || !this.psProcess.stdin) {
         return reject(new Error('PowerShell process not started.'));
       }
+
       const initialLength = this.outputBuffer.length;
+
+      // Here we pipe the command’s output to Out-String and then Write-Host,
+      // ensuring that it becomes plain text in stdout.
       const script = `
-Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} }
+Invoke-Command -Session ${this.sessionVariable} -ScriptBlock { ${command} | Out-String } | Write-Host
 Write-Host '${this.COMMAND_MARKER}'
 `;
+
       this.psProcess.stdin.write(script + '\n');
+
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
         if (newOutput.some((l) => l.includes(this.COMMAND_MARKER))) {
@@ -95,13 +108,16 @@ Write-Host '${this.COMMAND_MARKER}'
         resolve();
         return;
       }
+
       const script = `
 Remove-PSSession -Session ${this.sessionVariable}
 Write-Host '${this.DISCONNECT_MARKER}'
 exit
 `;
+
       const initialLength = this.outputBuffer.length;
       this.psProcess.stdin.write(script + '\n');
+
       const checkInterval = setInterval(() => {
         const newOutput = this.outputBuffer.slice(initialLength);
         if (newOutput.some((l) => l.includes(this.DISCONNECT_MARKER))) {
