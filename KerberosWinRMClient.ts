@@ -1,51 +1,86 @@
-import { environments } from '../config/env.config';
-import winrm from 'nodejs-winrm';
+import { Page, Request, Response } from '@playwright/test';
 
-export class WindowsManager {
-  private host: string;
-  private username: string;
-  private password: string;
-  private testNetwork: string;
+export class ApiTracker {
+  private requestMap: Map<string, number> = new Map();
+  private responseMap: Map<string, { status: number; body: any }> = new Map();
+  private pendingRequests: Map<string, (() => void)[]> = new Map();
 
-  constructor(instance: keyof typeof environments) {
-    const config = environments[instance];
-    if (!config) {
-      throw new Error(`Instance "${instance}" not found in env.config.ts`);
-    }
-    this.host = config.baseURL;
-    this.username = config.username;
-    this.password = config.password;
-    this.testNetwork = config.vmTestNetwork;
-    if (!this.testNetwork) {
-      throw new Error(`"vmTestNetwork" not specified in env.config for instance "${instance}"`);
-    }
-  }
+  constructor(private page: Page) {}
 
-  public async disableNetworkAdapter(): Promise<void> {
-    const command = `Disable-NetAdapter -Name '${this.testNetwork}' -Confirm:$false`;
-    await this.runWinRMCommand(command);
-  }
+  startTracking(): void {
+    this.page.on('request', (request: Request) => {
+      const key = this.getRequestKey(request);
+      this.requestMap.set(key, (this.requestMap.get(key) || 0) + 1);
 
-  public async enableNetworkAdapter(): Promise<void> {
-    const command = `Enable-NetAdapter -Name '${this.testNetwork}' -Confirm:$false`;
-    await this.runWinRMCommand(command);
-  }
+      if (this.pendingRequests.has(key)) {
+        this.pendingRequests.get(key)?.forEach(resolve => resolve());
+        this.pendingRequests.delete(key);
+      }
+    });
 
-  private async runWinRMCommand(command: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const options = {
-        host: this.host,
-        username: this.username,
-        password: this.password,
-        port: 5985,
-      };
-      winrm.runCommand(command, options.host, options.port, options.username, options.password, (err, result) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
+    this.page.on('response', async (response: Response) => {
+      const request = response.request();
+      const key = this.getRequestKey(request);
+
+      try {
+        const body = await response.json().catch(() => null);
+        this.responseMap.set(key, { status: response.status(), body });
+      } catch (error) {
+        console.error(`Failed to read response body for ${key}:`, error);
+      }
     });
   }
+
+  stopTracking(): void {
+    this.page.removeListener('request', this.trackRequest);
+  }
+
+  async waitForRequest(url: string, method?: string, timeout: number = 5000): Promise<void> {
+    const key = method ? `${method.toUpperCase()} ${url}` : url;
+    if (this.requestMap.get(key)) return;
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(key);
+        reject(new Error(`Timeout: Request ${key} was not made within ${timeout}ms`));
+      }, timeout);
+
+      this.pendingRequests.set(key, [...(this.pendingRequests.get(key) || []), () => {
+        clearTimeout(timer);
+        resolve();
+      }]);
+    });
+  }
+
+  async waitForMultipleRequests(
+    requests: { url: string; method?: string }[],
+    timeout: number = 5000
+  ): Promise<void> {
+    await Promise.all(requests.map(req => this.waitForRequest(req.url, req.method, timeout)));
+  }
+
+  getRequestCount(url: string, method?: string): number {
+    const key = method ? `${method.toUpperCase()} ${url}` : url;
+    return this.requestMap.get(key) || 0;
+  }
+
+  getResponse(url: string, method?: string): { status: number; body: any } | null {
+    const key = method ? `${method.toUpperCase()} ${url}` : url;
+    return this.responseMap.get(key) || null;
+  }
+
+  resetTracking(): void {
+    this.requestMap.clear();
+    this.responseMap.clear();
+    this.pendingRequests.clear();
+  }
+
+  private getRequestKey(request: Request): string {
+    return `${request.method()} ${request.url()}`;
+  }
+
+  private trackRequest = (request: Request): void => {
+    const key = this.getRequestKey(request);
+    this.requestMap.set(key, (this.requestMap.get(key) || 0) + 1);
+  };
 }
