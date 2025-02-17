@@ -1,0 +1,70 @@
+import { createApiContext } from "../apiClientConfig";
+import { request } from "@playwright/test";
+
+export class C2Services {
+  private accessToken: string;
+  private apiContext: any;
+
+  constructor(loginURL: string, username: string, password: string, baseURL: string) {
+    this.login(loginURL, username, password, baseURL);
+  }
+
+  private async login(loginURL: string, username: string, password: string, baseURL: string) {
+    const apiContext = await createApiContext();
+    const response = await apiContext.post(loginURL, {
+      form: { username, password },
+    });
+
+    if (!response.ok()) {
+      throw new Error(`Failed to login with status code ${response.status()}`);
+    }
+
+    const responseBody = await response.json();
+    console.log(responseBody);
+    this.accessToken = responseBody.token; // Assuming token is in responseBody
+    this.apiContext = await createApiContext(this.accessToken);
+    this.fetchEventTaskType(baseURL);
+  }
+
+  private async fetchEventTaskType(baseURL: string) {
+    const response = await this.apiContext.get(`${baseURL}/eventTaskType`);
+    if (response.ok()) {
+      const data = await response.json();
+      console.log("Event Task Types:", data);
+    } else {
+      console.error(`Failed to fetch event task types. Status: ${response.status()}`);
+    }
+  }
+
+  private async getApiContext(additionalHeaders: object = {}) {
+    return createApiContext(this.accessToken, additionalHeaders);
+  }
+
+  async createEvent(requestURL: string, eventData: object) {
+    const response = await this.apiContext.post(requestURL, { data: eventData });
+
+    if (response.ok()) {
+      console.log(`Event created. Response code: ${response.status()}`);
+      console.log(`Response body: \n${await response.text()}`);
+      return await response.json();
+    } else {
+      console.error(`Failed to create event. Status: ${response.status()}`);
+      console.error(`Response body: \n${await response.text()}`);
+      return null;
+    }
+  }
+
+  async setEventState(eventID: string, action: string, requestURL: string) {
+    const response = await this.apiContext.put(requestURL, {
+      params: { action },
+    });
+
+    if (response.status() === 200) {
+      console.log(`Event ${eventID} state updated successfully to ${action}.`);
+    } else {
+      console.error(`Failed to update event state. Status: ${response.status()}`);
+    }
+
+    return response;
+  }
+}
