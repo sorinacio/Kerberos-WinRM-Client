@@ -1,52 +1,51 @@
-import { request, Response } from "@playwright/test";
+import { request, APIRequestContext } from "@playwright/test";
 import { endpoints, baseURL_C2 } from "../config/endpoints";
 
-interface LoginResponse {
-  access_token: string;
-  token_type?: string;
-  expires_in?: number;
-}
-
 export class C2Services {
-  private accessToken = "";
+  private accessToken: string = "";
+  private apiContext: APIRequestContext;
   private loginPromise: Promise<void>;
 
   constructor(username: string, password: string) {
+    this.apiContext = request.newContext(); // Create API request context
     this.loginPromise = this.login(username, password);
   }
 
   private async login(username: string, password: string): Promise<void> {
-    const response: Response = await request.fetch(`${baseURL_C2}${endpoints.login}`, {
-      method: "POST",
+    const response = await this.apiContext.post(`${baseURL_C2}${endpoints.login}`, {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ username, password }).toString(),
     });
+
     if (!response.ok()) {
       throw new Error(`Failed to login with status code ${response.status()}`);
     }
-    const responseBody = (await response.json()) as LoginResponse;
+
+    const responseBody = await response.json();
+    console.log("Login successful", responseBody);
     this.accessToken = responseBody.access_token;
   }
 
   private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
     await this.loginPromise;
+
     const headers = {
       Authorization: `Bearer ${this.accessToken}`,
       "Content-Type": "application/json",
     };
+
     const options: any = { headers, method };
-    if (data) {
-      options.body = JSON.stringify(data);
-    }
-    const response: Response = await request.fetch(`${baseURL_C2}${endpoint}`, options);
+    if (data) options.body = JSON.stringify(data);
+
+    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, options);
+
     if (!response.ok()) {
+      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
+      console.error(`Response: ${await response.text()}`);
       return null;
     }
-    return (await response.json()) as T;
-  }
 
-  async createEvent(eventData: object) {
-    return await this.requestAPI("POST", endpoints.createEvent, eventData);
+    return await response.json();
   }
 
   async checkConnectionStatus() {
