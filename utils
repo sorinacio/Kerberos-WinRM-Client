@@ -1,14 +1,15 @@
-import { request, APIRequestContext } from "@playwright/test";
-import { endpoints, baseURL_C2 } from "../config/endpoints";
-
 export class C2Services {
   private accessToken: string = "";
-  private apiContext: APIRequestContext;
+  private apiContext!: APIRequestContext;  // Use "!" to tell TypeScript it will be initialized later
   private loginPromise: Promise<void>;
 
   constructor(username: string, password: string) {
-    this.apiContext = this.createApiContext();
-    this.loginPromise = this.login(username, password);
+    this.loginPromise = this.initialize(username, password);
+  }
+
+  private async initialize(username: string, password: string) {
+    this.apiContext = await this.createApiContext();
+    await this.login(username, password);
   }
 
   private async createApiContext(additionalHeaders: object = {}): Promise<APIRequestContext> {
@@ -40,27 +41,5 @@ export class C2Services {
     console.log("Login successful", responseBody);
     this.accessToken = responseBody.access_token;
     this.apiContext = await this.createApiContext();
-  }
-
-  private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
-    await this.loginPromise;
-
-    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, {
-      method,
-      ...(data ? { body: JSON.stringify(data) } : {}),
-    });
-
-    if (!response.ok()) {
-      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
-      console.error(`Response: ${await response.text()}`);
-      return null;
-    }
-
-    return await response.json();
-  }
-
-
-  async fetchEventTaskType() {
-    return await this.requestAPI("GET", endpoints.eventTaskType);
   }
 }
