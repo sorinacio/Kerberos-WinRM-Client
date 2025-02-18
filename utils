@@ -1,5 +1,5 @@
 import { request } from "@playwright/test";
-import { API_ENDPOINTS, BASE_URL } from "../config/apiConfig";
+import { endpoints, baseURL_C2 } from "../config/endpoints";
 
 export class C2Services {
   private accessToken: string;
@@ -9,7 +9,7 @@ export class C2Services {
   }
 
   private async login(username: string, password: string) {
-    const response = await request.post(`${BASE_URL}${API_ENDPOINTS.LOGIN}`, {
+    const response = await request.post(`${baseURL_C2}${endpoints.login}`, {
       form: { username, password },
     });
 
@@ -31,7 +31,7 @@ export class C2Services {
     const options: any = { headers, method };
     if (data) options.body = JSON.stringify(data);
 
-    const response = await request.fetch(`${BASE_URL}${endpoint}`, options);
+    const response = await request.fetch(`${baseURL_C2}${endpoint}`, options);
 
     if (!response.ok()) {
       console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
@@ -42,16 +42,16 @@ export class C2Services {
     return await response.json();
   }
 
-  async createEvent(eventData: object) {
-    return await this.requestAPI("POST", API_ENDPOINTS.CREATE_EVENT, eventData);
+  async checkConnectionStatus() {
+    return await this.requestAPI("GET", endpoints.connectionStatus);
   }
 
-  async setEventState(eventID: string, action: string) {
-    return await this.requestAPI("PUT", `${API_ENDPOINTS.SET_EVENT_STATE}/${eventID}`, { action });
+  async getZones() {
+    return await this.requestAPI("GET", endpoints.zones);
   }
 
   async fetchEventTaskType() {
-    const data = await this.requestAPI("GET", API_ENDPOINTS.EVENT_TASK_TYPE);
+    const data = await this.requestAPI("GET", endpoints.eventTaskType);
     if (data) {
       console.log("Event Task Types:", data);
     }
