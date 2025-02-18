@@ -1,17 +1,17 @@
-import { createApiContext } from "../apiClientConfig";
-import { request } from "@playwright/test";
+import { request, APIRequestContext } from "@playwright/test";
+import { API_ENDPOINTS, BASE_URL } from "../config/apiConfig";
 
 export class C2Services {
   private accessToken: string;
-  private apiContext: any;
+  private apiContext: APIRequestContext;
 
-  constructor(loginURL: string, username: string, password: string, baseURL: string) {
-    this.login(loginURL, username, password, baseURL);
+  constructor(username: string, password: string) {
+    this.apiContext = request.newContext({ ignoreHTTPSErrors: true });
+    this.login(username, password);
   }
 
-  private async login(loginURL: string, username: string, password: string, baseURL: string) {
-    const apiContext = await createApiContext();
-    const response = await apiContext.post(loginURL, {
+  private async login(username: string, password: string) {
+    const response = await this.apiContext.post(`${BASE_URL}${API_ENDPOINTS.LOGIN}`, {
       form: { username, password },
     });
 
@@ -20,51 +20,43 @@ export class C2Services {
     }
 
     const responseBody = await response.json();
-    console.log(responseBody);
-    this.accessToken = responseBody.token; // Assuming token is in responseBody
-    this.apiContext = await createApiContext(this.accessToken);
-    this.fetchEventTaskType(baseURL);
+    console.log("Login successful", responseBody);
+    this.accessToken = responseBody.access_token;
   }
 
-  private async fetchEventTaskType(baseURL: string) {
-    const response = await this.apiContext.get(`${baseURL}/eventTaskType`);
-    if (response.ok()) {
-      const data = await response.json();
-      console.log("Event Task Types:", data);
-    } else {
-      console.error(`Failed to fetch event task types. Status: ${response.status()}`);
-    }
-  }
+  private async requestAPI(method: string, endpoint: string, data?: object) {
+    const headers = {
+      Authorization: `Bearer ${this.accessToken}`,
+      "Content-Type": "application/json",
+    };
 
-  private async getApiContext(additionalHeaders: object = {}) {
-    return createApiContext(this.accessToken, additionalHeaders);
-  }
+    const options: any = { headers, method };
+    if (data) options.data = data;
 
-  async createEvent(requestURL: string, eventData: object) {
-    const response = await this.apiContext.post(requestURL, { data: eventData });
+    const response = await this.apiContext.fetch(`${BASE_URL}${endpoint}`, options);
 
-    if (response.ok()) {
-      console.log(`Event created. Response code: ${response.status()}`);
-      console.log(`Response body: \n${await response.text()}`);
-      return await response.json();
-    } else {
-      console.error(`Failed to create event. Status: ${response.status()}`);
-      console.error(`Response body: \n${await response.text()}`);
+    if (!response.ok()) {
+      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
+      console.error(`Response: ${await response.text()}`);
       return null;
     }
+
+    return await response.json();
   }
 
-  async setEventState(eventID: string, action: string, requestURL: string) {
-    const response = await this.apiContext.put(requestURL, {
-      params: { action },
-    });
+  async createEvent(eventData: object) {
+    return await this.requestAPI("POST", API_ENDPOINTS.CREATE_EVENT, eventData);
+  }
 
-    if (response.status() === 200) {
-      console.log(`Event ${eventID} state updated successfully to ${action}.`);
-    } else {
-      console.error(`Failed to update event state. Status: ${response.status()}`);
+  async setEventState(eventID: string, action: string) {
+    return await this.requestAPI("PUT", `${API_ENDPOINTS.SET_EVENT_STATE}/${eventID}`, { action });
+  }
+
+  async fetchEventTaskType() {
+    const data = await this.requestAPI("GET", API_ENDPOINTS.EVENT_TASK_TYPE);
+    if (data) {
+      console.log("Event Task Types:", data);
     }
-
-    return response;
+    return data;
   }
 }
