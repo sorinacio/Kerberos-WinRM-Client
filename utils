@@ -1,35 +1,85 @@
 import { request } from '@playwright/test';
-import { baseURL_c2, endpoints } from './endpoints';
+import * as endpoints from './endpoints';
 
 export class ApiClient {
   public token: string | null = null;
   public loginPromise: Promise<any>;
 
   private baseURL: string;
-  private endpoint: string;
+  private endpoints: typeof endpoints;
   private username: string;
   private password: string;
 
   constructor(username: string, password: string) {
-    this.baseURL = baseURL_c2;
-    this.endpoint = endpoints.login;
+    // Store the entire imported module in this.endpoints
+    this.endpoints = endpoints;
+
+    // Assign the base URL from the module
+    this.baseURL = this.endpoints.baseURL_C2;
+
     this.username = username;
     this.password = password;
+
+    // Immediately start the login process
     this.loginPromise = this.loginUser();
   }
 
   private async loginUser() {
-    const loginURL = this.baseURL + this.endpoint;
+    // Build the login URL using the base URL + the "login" endpoint
+    const loginURL = this.baseURL + this.endpoints.endpoints.login;
+
     const apiContext = await request.newContext();
     const response = await apiContext.post(loginURL, {
       form: { username: this.username, password: this.password },
     });
+
     if (!response.ok()) {
       throw new Error(`Failed to login with status code ${response.status()}`);
     }
+
     const responseBody = await response.json();
     console.log('Login response:', responseBody);
+
+    // Store the token from the login response
     this.token = responseBody.token;
     return responseBody;
+  }
+
+  public async createApiContext(accessToken: string, additionalHeaders: object = {}) {
+    let headers;
+    if (accessToken || Object.keys(additionalHeaders).length > 0) {
+      headers = {
+        Cookie: accessToken,
+        'Content-Type': 'application/json',
+        ...additionalHeaders,
+      };
+    }
+
+    return request.newContext({
+      ignoreHTTPSErrors: true,
+      ...(headers ? { extraHTTPHeaders: headers } : {}),
+    });
+  }
+
+  public async createTask(taskData: object) {
+    if (!this.token) {
+      throw new Error('No token available, please login first');
+    }
+
+    // Build the request URL using the base URL + the "createEvent" endpoint
+    const requestURL = this.baseURL + this.endpoints.endpoints.createEvent;
+
+    const apiContext = await this.createApiContext(this.token);
+    const response = await apiContext.post(requestURL, {
+      data: taskData,
+    });
+
+    if (!response.ok()) {
+      console.log(`Failed to create task. Response code: ${response.status()}`);
+      console.log(`Response body: ${await response.text()}`);
+      throw new Error('Failed to create task');
+    }
+
+    return response.json();
   }
 }
