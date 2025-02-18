@@ -7,8 +7,23 @@ export class C2Services {
   private loginPromise: Promise<void>;
 
   constructor(username: string, password: string) {
-    this.apiContext = request.newContext(); // Create API request context
+    this.apiContext = this.createApiContext();
     this.loginPromise = this.login(username, password);
+  }
+
+  private async createApiContext(additionalHeaders: object = {}): Promise<APIRequestContext> {
+    let headers = {};
+    if (this.accessToken || Object.keys(additionalHeaders).length > 0) {
+      headers = {
+        Cookie: this.accessToken,
+        "Content-Type": "application/json",
+        ...additionalHeaders,
+      };
+    }
+    return request.newContext({
+      ignoreHTTPSErrors: true,
+      ...(headers ? { extraHTTPHeaders: headers } : {}),
+    });
   }
 
   private async login(username: string, password: string): Promise<void> {
@@ -24,20 +39,16 @@ export class C2Services {
     const responseBody = await response.json();
     console.log("Login successful", responseBody);
     this.accessToken = responseBody.access_token;
+    this.apiContext = await this.createApiContext();
   }
 
   private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
     await this.loginPromise;
 
-    const headers = {
-      Authorization: `Bearer ${this.accessToken}`,
-      "Content-Type": "application/json",
-    };
-
-    const options: any = { headers, method };
-    if (data) options.body = JSON.stringify(data);
-
-    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, options);
+    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, {
+      method,
+      ...(data ? { body: JSON.stringify(data) } : {}),
+    });
 
     if (!response.ok()) {
       console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
@@ -48,13 +59,6 @@ export class C2Services {
     return await response.json();
   }
 
-  async checkConnectionStatus() {
-    return await this.requestAPI("GET", endpoints.connectionStatus);
-  }
-
-  async getZones() {
-    return await this.requestAPI("GET", endpoints.zones);
-  }
 
   async fetchEventTaskType() {
     return await this.requestAPI("GET", endpoints.eventTaskType);
