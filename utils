@@ -11,36 +11,24 @@ export class ApiClient {
   private password: string;
 
   constructor(username: string, password: string) {
-    // Store the entire imported module in this.endpoints
     this.endpoints = endpoints;
-
-    // Assign the base URL from the module
     this.baseURL = this.endpoints.baseURL_C2;
-
     this.username = username;
     this.password = password;
-
-    // Immediately start the login process
     this.loginPromise = this.loginUser();
   }
 
   private async loginUser() {
-    // Build the login URL using the base URL + the "login" endpoint
     const loginURL = this.baseURL + this.endpoints.endpoints.login;
-
     const apiContext = await request.newContext();
     const response = await apiContext.post(loginURL, {
       form: { username: this.username, password: this.password },
     });
-
     if (!response.ok()) {
       throw new Error(`Failed to login with status code ${response.status()}`);
     }
-
     const responseBody = await response.json();
     console.log('Login response:', responseBody);
-
-    // Store the token from the login response
     this.token = responseBody.token;
     return responseBody;
   }
@@ -54,7 +42,6 @@ export class ApiClient {
         ...additionalHeaders,
       };
     }
-
     return request.newContext({
       ignoreHTTPSErrors: true,
       ...(headers ? { extraHTTPHeaders: headers } : {}),
@@ -65,21 +52,33 @@ export class ApiClient {
     if (!this.token) {
       throw new Error('No token available, please login first');
     }
-
-    // Build the request URL using the base URL + the "createEvent" endpoint
     const requestURL = this.baseURL + this.endpoints.endpoints.createEvent;
-
     const apiContext = await this.createApiContext(this.token);
     const response = await apiContext.post(requestURL, {
       data: taskData,
     });
-
     if (!response.ok()) {
       console.log(`Failed to create task. Response code: ${response.status()}`);
       console.log(`Response body: ${await response.text()}`);
       throw new Error('Failed to create task');
     }
+    return response.json();
+  }
 
+  public async createEvent(eventData: object) {
+    if (!this.token) {
+      throw new Error('No token available, please login first');
+    }
+    const requestURL = this.baseURL + this.endpoints.endpoints.createEvent;
+    const apiContext = await this.createApiContext(this.token);
+    const response = await apiContext.post(requestURL, {
+      data: eventData,
+    });
+    if (!response.ok()) {
+      console.log(`Failed to create event. Response code: ${response.status()}`);
+      console.log(`Response body: ${await response.text()}`);
+      throw new Error('Failed to create event');
+    }
     return response.json();
   }
 }
