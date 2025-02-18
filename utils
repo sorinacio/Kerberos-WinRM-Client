@@ -1,136 +1,63 @@
-/**
- * A service class that handles all interactions with the C2 system.
- * It logs in upon instantiation and provides methods for accessing endpoints.
- */
-
 import { request, Response } from "@playwright/test";
 import { endpoints, baseURL_C2 } from "../config/endpoints";
 
-/**
- * Represents the shape of the login response.
- */
 interface LoginResponse {
   access_token: string;
   token_type?: string;
   expires_in?: number;
 }
 
-/**
- * Provides method return types for better clarity.
- * You can customize these interfaces to match your actual API responses.
- */
-interface ConnectionStatus {
-  status: string;
-  // Extend as needed...
-}
-
-interface Zones {
-  // Example shape, adapt to your real data.
-  id: string;
-  name: string;
-}
-
-interface EventTaskType {
-  // Example shape, adapt to your real data.
-  taskId: string;
-  description: string;
-}
-
 export class C2Services {
-  private accessToken: string = "";
-  /**
-   * A promise that resolves once login is complete.
-   * Ensures subsequent methods wait for authentication.
-   */
+  private accessToken = "";
   private loginPromise: Promise<void>;
 
-  /**
-   * Initializes the service by triggering the login process.
-   * @param username The username for C2 login
-   * @param password The password for C2 login
-   */
   constructor(username: string, password: string) {
     this.loginPromise = this.login(username, password);
   }
 
-  /**
-   * Logs in the user and sets the access token.
-   * @param username The username
-   * @param password The password
-   */
   private async login(username: string, password: string): Promise<void> {
     const response: Response = await request.fetch(`${baseURL_C2}${endpoints.login}`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ username, password }).toString(),
     });
-
     if (!response.ok()) {
       throw new Error(`Failed to login with status code ${response.status()}`);
     }
-
     const responseBody = (await response.json()) as LoginResponse;
-    console.log("Login successful", responseBody);
     this.accessToken = responseBody.access_token;
   }
 
-  /**
-   * A utility to abstract the fetch logic with a method, endpoint, and optional body.
-   * @param method HTTP method (GET, POST, PUT, etc.)
-   * @param endpoint The relative endpoint defined in endpoints config
-   * @param data Optional body data for POST/PUT
-   * @returns A parsed JSON response or null if request fails.
-   */
   private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
-    // Ensure login is complete before any request.
     await this.loginPromise;
-
     const headers = {
       Authorization: `Bearer ${this.accessToken}`,
       "Content-Type": "application/json",
     };
-
     const options: any = { headers, method };
     if (data) {
       options.body = JSON.stringify(data);
     }
-
     const response: Response = await request.fetch(`${baseURL_C2}${endpoint}`, options);
-
     if (!response.ok()) {
-      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
-      console.error(`Response: ${await response.text()}`);
       return null;
     }
-
     return (await response.json()) as T;
   }
 
-  /**
-   * Checks the connection status.
-   * @returns The parsed connection status or null if failed.
-   */
-  async checkConnectionStatus(): Promise<ConnectionStatus | null> {
-    return this.requestAPI<ConnectionStatus>("GET", endpoints.connectionStatus);
+  async createEvent(eventData: object) {
+    return await this.requestAPI("POST", endpoints.createEvent, eventData);
   }
 
-  /**
-   * Retrieves the available zones.
-   * @returns An array of zones or null if failed.
-   */
-  async getZones(): Promise<Zones[] | null> {
-    return this.requestAPI<Zones[]>("GET", endpoints.zones);
+  async checkConnectionStatus() {
+    return await this.requestAPI("GET", endpoints.connectionStatus);
   }
 
-  /**
-   * Fetches event task types.
-   * @returns An array of event task types or null if failed.
-   */
-  async fetchEventTaskType(): Promise<EventTaskType[] | null> {
-    const data = await this.requestAPI<EventTaskType[]>("GET", endpoints.eventTaskType);
-    if (data) {
-      console.log("Event Task Types:", data);
-    }
-    return data;
+  async getZones() {
+    return await this.requestAPI("GET", endpoints.zones);
+  }
+
+  async fetchEventTaskType() {
+    return await this.requestAPI("GET", endpoints.eventTaskType);
   }
 }
