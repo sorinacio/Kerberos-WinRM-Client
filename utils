@@ -1,45 +1,68 @@
+import { request, APIRequestContext } from "@playwright/test";
+import { endpoints, baseURL_C2 } from "../config/endpoints";
+
 export class C2Services {
   private accessToken: string = "";
-  private apiContext!: APIRequestContext;  // Use "!" to tell TypeScript it will be initialized later
+  private apiContext: APIRequestContext | null = null;
   private loginPromise: Promise<void>;
 
   constructor(username: string, password: string) {
-    this.loginPromise = this.initialize(username, password);
-  }
-
-  private async initialize(username: string, password: string) {
-    this.apiContext = await this.createApiContext();
-    await this.login(username, password);
-  }
-
-  private async createApiContext(additionalHeaders: object = {}): Promise<APIRequestContext> {
-    let headers = {};
-    if (this.accessToken || Object.keys(additionalHeaders).length > 0) {
-      headers = {
-        Cookie: this.accessToken,
-        "Content-Type": "application/json",
-        ...additionalHeaders,
-      };
-    }
-    return request.newContext({
-      ignoreHTTPSErrors: true,
-      ...(headers ? { extraHTTPHeaders: headers } : {}),
-    });
+    this.loginPromise = this.login(username, password);
   }
 
   private async login(username: string, password: string): Promise<void> {
-    const response = await this.apiContext.post(`${baseURL_C2}${endpoints.login}`, {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ username, password }).toString(),
-    });
+    const response = await this.requestAPI("POST", endpoints.login, new URLSearchParams({ username, password }), true);
+    if (!response) {
+      throw new Error("Failed to login");
+    }
+    console.log("Login successful", response);
+    this.accessToken = response.access_token;
+    this.apiContext = null;
+  }
 
-    if (!response.ok()) {
-      throw new Error(`Failed to login with status code ${response.status()}`);
+  private async requestAPI<T>(method: string, endpoint: string, data?: object | URLSearchParams, isLogin: boolean = false): Promise<T | null> {
+    await this.loginPromise;
+    
+    let headers: Record<string, string> = {
+      "Content-Type": isLogin ? "application/x-www-form-urlencoded" : "application/json",
+    };
+    
+    if (!isLogin && this.accessToken) {
+      headers["Authorization"] = `Bearer ${this.accessToken}`;
+    }
+    
+    if (!this.apiContext) {
+      this.apiContext = await request.newContext({
+        ignoreHTTPSErrors: true,
+        extraHTTPHeaders: headers,
+      });
     }
 
-    const responseBody = await response.json();
-    console.log("Login successful", responseBody);
-    this.accessToken = responseBody.access_token;
-    this.apiContext = await this.createApiContext();
+    const options: any = { method };
+    if (data) {
+      options.body = isLogin ? data.toString() : JSON.stringify(data);
+    }
+
+    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, options);
+    
+    if (!response.ok()) {
+      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
+      console.error(`Response: ${await response.text()}`);
+      return null;
+    }
+
+    return await response.json();
+  }
+
+  async checkConnectionStatus() {
+    return await this.requestAPI("GET", endpoints.connectionStatus);
+  }
+
+  async getZones() {
+    return await this.requestAPI("GET", endpoints.zones);
+  }
+
+  async fetchEventTaskType() {
+    return await this.requestAPI("GET", endpoints.eventTaskType);
   }
 }
