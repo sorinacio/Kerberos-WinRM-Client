@@ -2,84 +2,62 @@ import { request, APIRequestContext } from "@playwright/test";
 import { endpoints, baseURL_C2 } from "../config/endpoints";
 
 export class C2Services {
-  private accessToken: string = "";
-  private apiContext: APIRequestContext;
-  private loginPromise: Promise<void>;
+  private accessToken = "";
+  private apiContext!: APIRequestContext;
 
   constructor(username: string, password: string) {
-    this.apiContext = request.newContext({ ignoreHTTPSErrors: true });
-    this.loginPromise = this.initialize(username, password);
+    this.initialize(username, password);
   }
 
   private async initialize(username: string, password: string) {
-    this.apiContext = await this.createApiContext();
     await this.login(username, password);
+    this.apiContext = await this.createApiContext();
   }
 
-  private async createApiContext(additionalHeaders: object = {}): Promise<APIRequestContext> {
-    let headers = {};
-    if (this.accessToken || Object.keys(additionalHeaders).length > 0) {
-      headers = {
-        Cookie: this.accessToken,
-        "Content-Type": "application/json",
-        ...additionalHeaders,
-      };
-    }
+  private async createApiContext(headers: Record<string, string> = {}): Promise<APIRequestContext> {
     return request.newContext({
       ignoreHTTPSErrors: true,
-      ...(headers ? { extraHTTPHeaders: headers } : {}),
+      extraHTTPHeaders: {
+        Cookie: this.accessToken,
+        "Content-Type": "application/json",
+        ...headers,
+      },
     });
   }
 
-  private async login(username: string, password: string): Promise<void> {
-    const response = await this.apiContext.post(`${baseURL_C2}${endpoints.login}`, {
+  private async login(username: string, password: string) {
+    const response = await request.newContext().post(`${baseURL_C2}${endpoints.login}`, {
       form: { username, password },
     });
 
     if (!response.ok()) {
-      throw new Error(`Failed to login with status code ${response.status()}`);
+      throw new Error(`Login failed: ${response.status()}`);
     }
 
-    const responseBody = await response.json();
-    console.log("Login successful", responseBody);
-    this.accessToken = responseBody.access_token;
-    this.apiContext = await this.createApiContext();
+    const { access_token } = await response.json();
+    console.log("Login successful");
+    this.accessToken = access_token;
   }
 
   private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
-    await this.loginPromise;
-
     const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, {
       method,
-      ...(data ? { body: JSON.stringify(data) } : {}),
+      body: data ? JSON.stringify(data) : undefined,
     });
 
     if (!response.ok()) {
-      console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
-      console.error(`Response: ${await response.text()}`);
+      console.error(`API Error: ${method} ${endpoint} - ${response.status()}`);
       return null;
     }
 
-    return await response.json();
+    return response.json();
   }
 
   async createEvent(eventData: object) {
-    return await this.requestAPI("POST", endpoints.createEvent, eventData);
-  }
-
-  async setEventState(eventID: string, action: string) {
-    return await this.requestAPI("PUT", `${endpoints.setEventState}/${eventID}`, { action });
-  }
-
-  async checkConnectionStatus() {
-    return await this.requestAPI("GET", endpoints.connectionStatus);
-  }
-
-  async getZones() {
-    return await this.requestAPI("GET", endpoints.zones);
+    return this.requestAPI("POST", endpoints.createEvent, eventData);
   }
 
   async fetchEventTaskType() {
-    return await this.requestAPI("GET", endpoints.eventTaskType);
+    return this.requestAPI("GET", endpoints.eventTaskType);
   }
 }
