@@ -40,10 +40,12 @@ export class C2Services {
   }
 
   private async requestAPI<T>(method: string, endpoint: string, data?: object): Promise<T | null> {
-    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, {
-      method,
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    const options: any = { method };
+    if (data) {
+      options.data = data;
+    }
+
+    const response = await this.apiContext.fetch(`${baseURL_C2}${endpoint}`, options);
 
     if (!response.ok()) {
       console.error(`API Error: ${method} ${endpoint} - ${response.status()}`);
