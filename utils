@@ -1,17 +1,15 @@
-import { request, APIRequestContext } from "@playwright/test";
+import { request } from "@playwright/test";
 import { API_ENDPOINTS, BASE_URL } from "../config/apiConfig";
 
 export class C2Services {
   private accessToken: string;
-  private apiContext: APIRequestContext;
 
   constructor(username: string, password: string) {
-    this.apiContext = request.newContext({ ignoreHTTPSErrors: true });
     this.login(username, password);
   }
 
   private async login(username: string, password: string) {
-    const response = await this.apiContext.post(`${BASE_URL}${API_ENDPOINTS.LOGIN}`, {
+    const response = await request.post(`${BASE_URL}${API_ENDPOINTS.LOGIN}`, {
       form: { username, password },
     });
 
@@ -31,9 +29,9 @@ export class C2Services {
     };
 
     const options: any = { headers, method };
-    if (data) options.data = data;
+    if (data) options.body = JSON.stringify(data);
 
-    const response = await this.apiContext.fetch(`${BASE_URL}${endpoint}`, options);
+    const response = await request.fetch(`${BASE_URL}${endpoint}`, options);
 
     if (!response.ok()) {
       console.error(`API Request Failed: ${method} ${endpoint} - Status: ${response.status()}`);
