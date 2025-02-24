@@ -1,100 +1,20 @@
-import { request } from '@playwright/test';
-import { endpoints, baseURL_c2 } from '../config/endpoints';
+function decimalGpsToDms({ latitude, longitude }: { latitude: number; longitude: number }): string {
+  const toDms = (decimal: number, isLat: boolean) => {
+    const abs = Math.abs(decimal);
+    const degrees = Math.floor(abs);
+    const minutesFloat = (abs - degrees) * 60;
+    const minutes = Math.floor(minutesFloat);
+    const seconds = ((minutesFloat - minutes) * 60).toFixed(2);
 
-export class ApiClient {
-  public token: string | null = null;
-  public loginPromise: Promise<any>;
+    // Determine direction (N/S for latitude, E/W for longitude)
+    const direction = isLat
+      ? (decimal >= 0 ? 'N' : 'S')
+      : (decimal >= 0 ? 'E' : 'W');
 
-  private baseURL: string;
-  private username: string;
-  private password: string;
+    return `${degrees}° ${minutes}' ${seconds}" ${direction}`;
+  };
 
-  constructor(username: string, password: string) {
-    this.baseURL = baseURL_c2;
-    this.username = username;
-    this.password = password;
-
-    // Start login immediately; store the promise for awaiting later
-    this.loginPromise = this.loginUser();
-  }
-
-  private async loginUser() {
-    const loginURL = this.baseURL + endpoints.login;
-    const apiContext = await request.newContext();
-
-    const response = await apiContext.post(loginURL, {
-      form: { username: this.username, password: this.password },
-    });
-
-    if (!response.ok()) {
-      throw new Error(`Failed to login with status code ${response.status()}`);
-    }
-
-    const responseBody = await response.json();
-    console.log('Login response:', responseBody);
-
-    // Store the token from the login response
-    this.token = responseBody.token;
-    return responseBody;
-  }
-
-  public async createApiContext(accessToken: string, additionalHeaders: object = {}) {
-    let headers;
-    if (accessToken || Object.keys(additionalHeaders).length > 0) {
-      headers = {
-        Cookie: accessToken,
-        'Content-Type': 'application/json',
-        ...additionalHeaders,
-      };
-    }
-
-    return request.newContext({
-      ignoreHTTPSErrors: true,
-      ...(headers ? { extraHTTPHeaders: headers } : {}),
-    });
-  }
-
-  public async createTask(taskData: object) {
-    if (!this.token) {
-      throw new Error('No token available, please login first');
-    }
-
-    // Build the request URL using the base URL and the createEvent endpoint
-    // (If you have a separate endpoint for tasks, adjust accordingly.)
-    const requestURL = this.baseURL + endpoints.createEvent;
-
-    const apiContext = await this.createApiContext(this.token);
-    const response = await apiContext.post(requestURL, {
-      data: taskData,
-    });
-
-    if (!response.ok()) {
-      console.log(`Failed to create task. Response code: ${response.status()}`);
-      console.log(`Response body: ${await response.text()}`);
-      throw new Error('Failed to create task');
-    }
-
-    return response.json();
-  }
-
-  public async createEvent(eventData: object) {
-    if (!this.token) {
-      throw new Error('No token available, please login first');
-    }
-
-    const requestURL = this.baseURL + endpoints.createEvent;
-
-    const apiContext = await this.createApiContext(this.token);
-    const response = await apiContext.post(requestURL, {
-      data: eventData,
-    });
-
-    if (!response.ok()) {
-      console.log(`Failed to create event. Response code: ${response.status()}`);
-      console.log(`Response body: ${await response.text()}`);
-      throw new Error('Failed to create event');
-    }
-
-    return response.json();
-  }
+  const latDms = toDms(latitude, true);
+  const lonDms = toDms(longitude, false);
+  return `${latDms} ${lonDms}`;
 }
