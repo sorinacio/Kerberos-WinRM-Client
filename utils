@@ -1,26 +1,23 @@
-public decimalGpsToDms(coords: { latitude: number; longitude: number }): string {
-  const { latitude, longitude } = coords;
-  const toDms = (decimal: number, isLat: boolean): string => {
-    const absVal = Math.abs(decimal);
-    let deg = Math.floor(absVal);
-    const minutesFloat = (absVal - deg) * 60;
-    let min = Math.floor(minutesFloat);
-    let sec = parseFloat(((minutesFloat - min) * 60).toFixed(2));
-    if (sec === 60) {
-      sec = 0;
-      min += 1;
-    }
-    if (min === 60) {
-      min = 0;
-      deg += 1;
-    }
-    const degStr = parseInt(deg.toString(), 10).toString();
-    const minStr = parseInt(min.toString(), 10).toString();
-    const secStr = parseFloat(sec.toFixed(2)).toString();
-    const direction = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
-    return `${degStr}° ${minStr}' ${secStr}" ${direction}`;
-  };
-  const latDms = toDms(latitude, true);
-  const lonDms = toDms(longitude, false);
-  return `${latDms} ${lonDms}`;
+export class GpsConverter {
+  public static decimalGpsToDms(coords: { latitude: number; longitude: number }): string {
+    const { latitude, longitude } = coords;
+    const toDms = (decimal: number, isLat: boolean): string => {
+      const absVal = Math.abs(decimal);
+      let totalSeconds = absVal * 3600;
+      totalSeconds = parseFloat(totalSeconds.toFixed(2));
+      const degrees = Math.floor(totalSeconds / 3600);
+      let remainder = totalSeconds - degrees * 3600;
+      const minutes = Math.floor(remainder / 60);
+      remainder -= minutes * 60;
+      const seconds = remainder;
+      const direction = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
+      const degStr = String(degrees);
+      const minStr = String(minutes);
+      const secStr = seconds % 1 === 0 ? String(seconds.toFixed(0)) : String(seconds);
+      return `${degStr}° ${minStr}' ${secStr}" ${direction}`;
+    };
+    const latDms = toDms(latitude, true);
+    const lonDms = toDms(longitude, false);
+    return `${latDms} ${lonDms}`;
+  }
 }
