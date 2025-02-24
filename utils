@@ -1,23 +1,19 @@
-export class GpsConverter {
-  public static decimalGpsToDms(coords: { latitude: number; longitude: number }): string {
-    const { latitude, longitude } = coords;
-    const toDms = (decimal: number, isLat: boolean): string => {
-      const absVal = Math.abs(decimal);
-      let totalSeconds = absVal * 3600;
+  public  decimalGpsToDms({ latitude, longitude }: { latitude: number; longitude: number }): string {
+    const toDms = (value: number, isLat: boolean) => {
+      const abs = Math.abs(value);
+      let totalSeconds = abs * 3600;
       totalSeconds = parseFloat(totalSeconds.toFixed(2));
-      const degrees = Math.floor(totalSeconds / 3600);
-      let remainder = totalSeconds - degrees * 3600;
-      const minutes = Math.floor(remainder / 60);
-      remainder -= minutes * 60;
-      const seconds = remainder;
-      const direction = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
-      const degStr = String(degrees);
-      const minStr = String(minutes);
-      const secStr = seconds % 1 === 0 ? String(seconds.toFixed(0)) : String(seconds);
-      return `${degStr}° ${minStr}' ${secStr}" ${direction}`;
+      const deg = Math.floor(totalSeconds / 3600);
+      let remainder = totalSeconds - deg * 3600;
+      const min = Math.floor(remainder / 60);
+      remainder -= min * 60;
+      let sec = parseFloat(remainder.toFixed(2));
+      if (sec === 60) { sec = 0; }
+      const dir = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+      const degStr = String(deg);
+      const minStr = String(min);
+      const secStr = sec % 1 === 0 ? String(sec.toFixed(0)) : String(sec);
+      return `${degStr}° ${minStr}' ${secStr}" ${dir}`;
     };
-    const latDms = toDms(latitude, true);
-    const lonDms = toDms(longitude, false);
-    return `${latDms} ${lonDms}`;
+    return `${toDms(latitude, true)} ${toDms(longitude, false)}`;
   }
-}
