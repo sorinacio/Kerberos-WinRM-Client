@@ -1,19 +1,20 @@
-public  decimalGpsToDms({ latitude, longitude }: { latitude: number; longitude: number }): string {
-  function toDms(value: number, isLat: boolean): string {
-    const abs = Math.abs(value);
-    let totalSeconds = abs * 3600;
-    totalSeconds = parseFloat(totalSeconds.toFixed(2));
-    const degrees = Math.floor(totalSeconds / 3600);
-    let remainder = totalSeconds - degrees * 3600;
-    const minutes = Math.floor(remainder / 60);
-    remainder -= minutes * 60;
-    let seconds = parseFloat(remainder.toFixed(2));
-    if (seconds === 60) { seconds = 0; }
-    const direction = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
-    const degStr = degrees < 10 ? `0${degrees}` : `${degrees}`;
-    const minStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
-    const secStr = seconds < 10 ? `0${seconds.toFixed(2)}` : seconds.toFixed(2);
-    return `${degStr}° ${minStr}' ${secStr}" ${direction}`;
+export class GpsConverter {
+  public static decimalGpsToDms({ latitude, longitude }: { latitude: number; longitude: number }): string {
+    function toDms(value: number, isLat: boolean): string {
+      const abs = Math.abs(value);
+      let totalSeconds = abs * 3600;
+      totalSeconds = Math.round(totalSeconds * 100) / 100;
+      const degrees = Math.floor(totalSeconds / 3600);
+      let remainder = totalSeconds - degrees * 3600;
+      const minutes = Math.floor(remainder / 60);
+      remainder -= minutes * 60;
+      let seconds = Math.round(remainder * 100) / 100;
+      if (seconds === 60) {
+        seconds = 0;
+      }
+      const direction = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+      return `${degrees}° ${minutes}' ${seconds.toFixed(2)}" ${direction}`;
+    }
+    return `${toDms(latitude, true)} ${toDms(longitude, false)}`;
   }
-  return `${toDms(latitude, true)} ${toDms(longitude, false)}`;
 }
