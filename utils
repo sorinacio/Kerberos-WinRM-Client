@@ -18,3 +18,35 @@ export class GpsConverter {
     return `${toDms(latitude, true)} ${toDms(longitude, false)}`;
   }
 }
+
+
+
+  public dmsToDecimalGps(dms: string): { latitude: number; longitude: number } {
+    // Split into latitude and longitude parts
+    const [latStr, lonStr] = dms.split(/(?<=N)\s+/); // Split after "N" followed by whitespace
+
+    // Helper function to parse DMS string to decimal
+    const parseDms = (dmsPart: string): number => {
+      // Extract degrees, minutes, seconds, and direction using regex
+      const match = dmsPart.match(/(\d+)°\s*(\d+)?'?\s*(\d+\.?\d*)?"?\s*([NSEW])/);
+      if (!match) throw new Error(`Invalid DMS format: ${dmsPart}`);
+
+      const [, degStr, minStr = '0', secStr = '0', dir] = match;
+      const degrees = parseInt(degStr);
+      const minutes = parseInt(minStr);
+      const seconds = parseFloat(secStr);
+
+      // Convert to decimal degrees
+      let decimal = degrees + (minutes / 60) + (seconds / 3600);
+
+      // Apply sign based on direction
+      if (dir === 'S' || dir === 'W') decimal = -decimal;
+
+      return decimal;
+    };
+
+    const latitude = parseDms(latStr);
+    const longitude = parseDms(lonStr);
+
+    return { latitude, longitude };
+  }
