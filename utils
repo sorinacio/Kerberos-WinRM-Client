@@ -101,3 +101,22 @@ export class GpsConverter {
       ceil: `${latDms.ceil} ${lonDms.ceil}`,
     };
   }
+
+
+ public static decimalGpsToDms({ latitude, longitude }: { latitude: number; longitude: number }): string {
+    const toDms = (val: number, dir: string) => {
+      const deg = Math.floor(val);
+      const remainder = val - deg;
+      const min = Math.floor(remainder * 60);
+      const secFloat = (remainder * 60 - min) * 60;
+      const ceilSec = Math.ceil(secFloat * 100) / 100; // Ceiling to 2 decimal places
+
+      const degStr = deg.toString().padStart(2, '0');
+      const minStr = min.toString().padStart(2, '0');
+      const [secInt, secDec = ''] = ceilSec.toString().split('.');
+      const secPaddedInt = secInt.padStart(2, '0');
+      const secPaddedDec = secDec.padEnd(2, '0');
+      return `${degStr}° ${minStr}' ${secPaddedInt}.${secPaddedDec}" ${dir}`;
+    };
+    return `${toDms(latitude, 'N')} ${toDms(longitude, 'E')}`;
+  }
